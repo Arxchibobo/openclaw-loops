@@ -1,0 +1,22 @@
+[project]
+name = "openclaw-loops"
+version = "0.1.0"
+description = "openclaw automation harness for bot-listing and social-ops loops"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+openclaw = "cli.openclaw:cli"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cli*", "core*", "loops*", "adapters*"]

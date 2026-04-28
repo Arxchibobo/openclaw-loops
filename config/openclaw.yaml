@@ -1,0 +1,100 @@
+version: 1
+
+loops:
+  bot_listing:
+    description: "bot 上架 Loop · DOD: 打通产品供需内容，提升产品生产源头效率"
+    steps:
+      - id: 1
+        key: seo_scrape
+        name: "seokw 抓取"
+        module: loops.bot_listing.step1_seo_scrape
+        verify: keyword_count >= 50
+      - id: 2
+        key: demand_intake
+        name: "bot 提需求"
+        module: loops.bot_listing.step2_demand_intake
+        verify: demands_recorded
+      - id: 3
+        key: workshop_review
+        name: "art 站 workshop 审核"
+        module: loops.bot_listing.step3_workshop_review
+        verify: review_decision_present
+      - id: 4
+        key: acceptance
+        name: "验收"
+        module: loops.bot_listing.step4_acceptance
+        verify: acceptance_passed
+      - id: 5
+        key: publish
+        name: "通过上架"
+        module: loops.bot_listing.step5_publish
+        verify: amy_bo_consistent
+      - id: 6
+        key: feedback
+        name: "上架反馈"
+        module: loops.bot_listing.step6_feedback
+        verify: feedback_collected
+      - id: 7
+        key: optimize
+        name: "优化/下架替换"
+        module: loops.bot_listing.step7_optimize
+        verify: optimization_decision
+      - id: 8
+        key: notify
+        name: "通知反馈"
+        module: loops.bot_listing.step8_notify
+        verify: notification_delivered
+
+  social_ops:
+    description: "社媒运营 Loop · DOD: 提高社媒声量，提高转化付费"
+    steps:
+      - id: 1
+        key: kw_calendar
+        name: "核心词汇 + 周报 social calendar"
+        module: loops.social_ops.step1_kw_calendar
+        verify: dedup_rate >= 0.30
+      - id: 2
+        key: content_pipeline
+        name: "内容生产与发布"
+        module: loops.social_ops.step2_content_pipeline
+        verify: daily_output >= target
+      - id: 3
+        key: engagement
+        name: "互动运营"
+        module: loops.social_ops.step3_engagement
+        verify: connection_alive
+      - id: 4
+        key: analytics
+        name: "流量判断 + 优化"
+        module: loops.social_ops.step4_analytics
+        verify: metrics_emitted
+
+bridge:
+  wechat:
+    enabled: false
+    webhook_env: WECHAT_WEBHOOK
+  slack:
+    enabled: false
+    webhook_env: SLACK_WEBHOOK
+
+adapters:
+  seo:
+    provider: clawbo
+    base_url_env: SEO_BASE_URL
+  workshop:
+    review_rules:
+      min_score: 0.7
+      forbidden_tags: ["nsfw", "violence"]
+  lobster:
+    amy_endpoint_env: AMY_LOBSTER_URL
+    bo_endpoint_env: BO_LOBSTER_URL
+  x:
+    api_enabled: false
+    api_key_env: X_API_KEY
+    novnc_url_env: X_NOVNC_URL
+    health_check_interval_sec: 60
+
+paths:
+  state_db: state/openclaw.db
+  logs_dir: logs
+  reports_dir: reports

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# wrapper so users can call `./openclaw ...` without installing the package
+HERE="$(cd "$(dirname "$0")" && pwd)"
+exec python "$HERE/cli/openclaw.py" "$@"
