@@ -1,0 +1,14 @@
+{
+  "updated_at": "2026-04-28T11:21:25.585430+00:00",
+  "source": "lucas only_bo v2 (amy 305 vs bo 260 excl 暂不上线, 2026-04-28)",
+  "test_framely_bot_ids": [
+    "1756697481",
+    "1757314118",
+    "1762749169",
+    "1763132925"
+  ],
+  "production_porn_bot_ids": [
+    "1777001740"
+  ],
+  "note": "env-mismatch: Notion tagged art上线 but CMS Synced in another env. Per lucas 2026-04-28: test-framely → add test上线 tag; production-porn → replace art上线 with porn上线 (already applied in Notion)."
+}

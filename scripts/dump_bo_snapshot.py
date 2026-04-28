@@ -128,6 +128,23 @@ def dump(dry: bool = False) -> list[dict]:
         except Exception as e:
             print(f"[cms-filter] WARN: failed to load {cms_excl_path.name}: {e}")
 
+    # Env-mismatch filter: Notion粉上 art上线 但 CMS 在 test-framely 或 production-porn 环境
+    # 这种不属于真正的 art-production gap, 应该从 published 列表排除。
+    # Source: data/env_mismatch_bot_ids.json (amy-clawd CMS sweep)
+    env_path = Path(__file__).resolve().parent.parent / "data" / "env_mismatch_bot_ids.json"
+    if env_path.exists():
+        try:
+            env_data = json.loads(env_path.read_text(encoding="utf-8"))
+            env_ids = set(env_data.get("test_framely_bot_ids", []) +
+                          env_data.get("production_porn_bot_ids", []))
+            if env_ids:
+                before = len(published)
+                published = [r for r in published if r["bot_id"] not in env_ids]
+                print(f"[env-filter] dropped {before - len(published)} bots"
+                      f" (env-mismatch: test-framely / production-porn)")
+        except Exception as e:
+            print(f"[env-filter] WARN: failed to load {env_path.name}: {e}")
+
     if dry:
         print(f"[dry] total rows: {len(all_rows)}, with_bot_id: {len(filtered)},"
               f" published: {len(published)}")
