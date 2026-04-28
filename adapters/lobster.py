@@ -40,18 +40,38 @@ def _load_json_file(p: Path) -> list[dict[str, Any]] | None:
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return None
-    return data if isinstance(data, list) else None
+    return _unwrap(data)
+
+
+def _unwrap(data: Any) -> list[dict[str, Any]] | None:
+    """Accept both a plain list and {meta, listings:[...]} / {items:[...]}.
+
+    Amy-clawd's dump wraps {meta, listings:[]}; bo-side dump is a plain list.
+    Keep the adapter tolerant of both.
+    """
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for k in ("listings", "items", "results", "data"):
+            v = data.get(k)
+            if isinstance(v, list):
+                return v
+    return None
 
 
 def _fetch_http(url: str) -> list[dict[str, Any]]:
     r = httpx.get(url, timeout=15)
     r.raise_for_status()
     data = r.json()
-    return data if isinstance(data, list) else data.get("items", [])
+    return _unwrap(data) or []
 
 
 def _fetch_slack_latest(side: str) -> list[dict[str, Any]] | None:
-    """Pull the most recent `{side}-listings-snapshot.json` from a Slack channel.
+    """Pull the most recent `{side}-listings-snapshot*.json` from a Slack channel.
+
+    Matches any file whose name starts with `{side}-listings-snapshot`
+    (supports plain .json and timestamped variants like
+    `amy-listings-snapshot-20260428T110808Z.json`).
 
     Env:
       SLACK_BOT_TOKEN        — xoxb-...
@@ -61,12 +81,13 @@ def _fetch_slack_latest(side: str) -> list[dict[str, Any]] | None:
     channel = env("LOBSTER_SLACK_CHANNEL")
     if not token or not channel:
         return None
-    target_name = f"{side}-listings-snapshot.json"
+    prefix = f"{side}-listings-snapshot"
     try:
         r = httpx.get(
             "https://slack.com/api/files.list",
             headers={"Authorization": f"Bearer {token}"},
-            params={"channel": channel, "count": 200, "types": "spaces"},
+            # NOTE: do NOT pass types=spaces — it returns 0 results for uploads.
+            params={"channel": channel, "count": 200},
             timeout=15,
         )
         r.raise_for_status()
@@ -74,7 +95,9 @@ def _fetch_slack_latest(side: str) -> list[dict[str, Any]] | None:
         if not data.get("ok"):
             return None
         files = sorted(
-            (f for f in data.get("files", []) if f.get("name") == target_name),
+            (f for f in data.get("files", [])
+             if (f.get("name") or "").startswith(prefix)
+             and (f.get("name") or "").endswith(".json")),
             key=lambda f: -int(f.get("created", 0)),
         )
         if not files:
@@ -85,7 +108,7 @@ def _fetch_slack_latest(side: str) -> list[dict[str, Any]] | None:
         r2 = httpx.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
         r2.raise_for_status()
         payload = r2.json()
-        return payload if isinstance(payload, list) else payload.get("items")
+        return _unwrap(payload)
     except Exception:
         return None
 

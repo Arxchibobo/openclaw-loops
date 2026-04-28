@@ -76,7 +76,7 @@ def _extract(row: dict) -> dict:
         "slug_id": slug_id or None,
         "bot_name": name,
         "environment": "production",
-        "status": "Synced" if "art上线" in gui else "Edit",
+        "status": "Synced" if ("art上线" in gui and "暂不上线" not in gui) else "Edit",
         "url": url or None,
         "gui_bot": gui,
     }
