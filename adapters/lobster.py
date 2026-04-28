@@ -52,7 +52,7 @@ def _unwrap(data: Any) -> list[dict[str, Any]] | None:
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
-        for k in ("listings", "items", "results", "data"):
+        for k in ("listings", "items", "results", "data", "rows"):
             v = data.get(k)
             if isinstance(v, list):
                 return v

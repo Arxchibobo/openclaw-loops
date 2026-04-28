@@ -111,6 +111,23 @@ def dump(dry: bool = False) -> list[dict]:
     # canonical: only Synced (art上线) entries count as "published"
     published = [r for r in filtered if r["status"] == "Synced"]
 
+    # CMS reality filter: drop bot_ids flagged by amy-clawd as 'NotFound' (no
+    # LandingPage in any CMS env) or 'Deleted'. Prevents inflating only_bo with
+    # bots that never made it to CMS. Source: data/cms_notfound_bot_ids.json
+    cms_excl_path = Path(__file__).resolve().parent.parent / "data" / "cms_notfound_bot_ids.json"
+    if cms_excl_path.exists():
+        try:
+            excl_data = json.loads(cms_excl_path.read_text(encoding="utf-8"))
+            excl_ids = set(excl_data.get("notfound_bot_ids", []) +
+                           excl_data.get("deleted_bot_ids", []))
+            if excl_ids:
+                before = len(published)
+                published = [r for r in published if r["bot_id"] not in excl_ids]
+                print(f"[cms-filter] dropped {before - len(published)} bots"
+                      f" (NotFound/Deleted in CMS per amy-clawd)")
+        except Exception as e:
+            print(f"[cms-filter] WARN: failed to load {cms_excl_path.name}: {e}")
+
     if dry:
         print(f"[dry] total rows: {len(all_rows)}, with_bot_id: {len(filtered)},"
               f" published: {len(published)}")
