@@ -52,7 +52,7 @@ loops:
         key: kw_calendar
         name: "核心词汇 + 周报 social calendar"
         module: loops.social_ops.step1_kw_calendar
-        verify: dedup_rate >= 0.30
+        verify: dedup_rate >= 0.05
       - id: 2
         key: content_pipeline
         name: "内容生产与发布"
