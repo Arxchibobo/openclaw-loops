@@ -105,7 +105,8 @@ def _fetch_slack_latest(side: str) -> list[dict[str, Any]] | None:
         url = files[0].get("url_private_download") or files[0].get("url_private")
         if not url:
             return None
-        r2 = httpx.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        r2 = httpx.get(url, headers={"Authorization": f"Bearer {token}"},
+                       timeout=30, follow_redirects=True)
         r2.raise_for_status()
         payload = r2.json()
         return _unwrap(payload)
