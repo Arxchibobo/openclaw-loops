@@ -198,6 +198,48 @@ def test_notes_scrub_skips_sfw_demands():
     assert "fancy text generator" in status.notes
 
 
+def test_notes_scrub_word_boundary_does_not_eat_substrings():
+    """Short kw like 'x' or 'ai' must not scrub unrelated substrings
+    (real bug 2026-04-29: kw='x' turned 'executor' into '[REDACTED]ecutor').
+    Only full-word matches should be redacted."""
+    def exec_with_notes(demand, pipeline_ctx):
+        return workshop_sop.BotStatus(
+            demand_id=demand["id"],
+            status="blocked",
+            notes="nsfw route not yet implemented in real executor",
+        )
+
+    # kw='x' occurs inside 'executor' and 'nsfw' substrings; must NOT scrub
+    d_x = _demand(id="D-X", category="nsfw",
+                   sop="nsfw_shellagent_encrypted",
+                   workflow_type="face_swap", kw="x")
+    workshop_sop.set_executor(exec_with_notes)
+    try:
+        s = workshop_sop.run_pipeline(d_x, dry_run=False)
+    finally:
+        workshop_sop.set_executor(None)
+    assert s.notes == "nsfw route not yet implemented in real executor", (
+        f"word-boundary scrub failed: got {s.notes!r}"
+    )
+
+    # a proper full-word kw MUST still be scrubbed
+    def leaky(demand, pipeline_ctx):
+        return workshop_sop.BotStatus(
+            demand_id=demand["id"], status="ready_for_landing_page",
+            notes=f"processed {demand['kw']} successfully",
+        )
+    d_full = _demand(id="D-FULL", category="nsfw",
+                      sop="nsfw_shellagent_encrypted",
+                      workflow_type="face_swap", kw="leaky_kw")
+    workshop_sop.set_executor(leaky)
+    try:
+        s2 = workshop_sop.run_pipeline(d_full, dry_run=False)
+    finally:
+        workshop_sop.set_executor(None)
+    assert "leaky_kw" not in s2.notes
+    assert "[REDACTED]" in s2.notes
+
+
 # ---------- step4 integration ----------
 
 def test_step4_routes_sop_demands_to_workshop_sop():

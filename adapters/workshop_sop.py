@@ -218,10 +218,17 @@ def run_pipeline(demand: dict[str, Any], *, dry_run: bool = False) -> BotStatus:
     # raw NSFW kw into `notes` (e.g. via an f-string), strip it before the
     # status crosses any serialization / logging boundary. Layered defense
     # on top of the per-executor privacy contract.
+    #
+    # Word-boundary match only — a short kw like "x" or "ai" must not
+    # accidentally scrub unrelated substrings inside the notes (real bug
+    # caught 2026-04-29: kw="x" scrubbed "e[REDACTED]ecutor" mid-word).
     if demand.get("category") == "nsfw":
         raw_kw = demand.get("kw")
-        if raw_kw and status.notes and raw_kw in status.notes:
-            status.notes = status.notes.replace(raw_kw, "[REDACTED]")
+        if raw_kw and status.notes:
+            import re
+            pattern = re.compile(r"\b" + re.escape(raw_kw) + r"\b")
+            if pattern.search(status.notes):
+                status.notes = pattern.sub("[REDACTED]", status.notes)
 
     bridge.send("log",
                 f"[workshop_sop] {_redact_id(demand)} → {status.status} ({pipeline_name})",
