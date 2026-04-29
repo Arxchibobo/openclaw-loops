@@ -138,6 +138,66 @@ def test_run_batch_preserves_order():
     assert [s.demand_id for s in out] == ["D-1", "D-2", "D-3"]
 
 
+# ---------- defensive: lucas PR#2 review ----------
+
+def test_rh_workflow_id_is_none_not_empty_string_when_route_lacks_id():
+    """image2video route has workflow_id=None and no webapp_id.
+    Downstream consumers distinguish None (not-yet-picked) from a real id,
+    NOT from empty string. Ref: lucas-clawd PR#2 review."""
+    d = _demand(workflow_type="image2video")  # route has workflow_id=None
+    status = workshop_sop.run_pipeline(d, dry_run=True)
+    assert status.rh_workflow_id is None, (
+        f"expected None for not-yet-picked workflow, got {status.rh_workflow_id!r}"
+    )
+
+
+def test_rh_workflow_id_preserved_when_route_has_id():
+    d = _demand(workflow_type="face_swap")
+    status = workshop_sop.run_pipeline(d, dry_run=True)
+    assert status.rh_workflow_id == "1838819177871339522"
+
+
+def test_notes_scrubs_raw_nsfw_kw_from_buggy_executor():
+    """If a real executor accidentally embeds the raw NSFW kw in notes,
+    run_pipeline must strip it before the status is returned."""
+    def leaky_exec(demand, pipeline_ctx):
+        # simulate f-string leak
+        return workshop_sop.BotStatus(
+            demand_id=demand["id"],
+            status="ready_for_landing_page",
+            notes=f"processed prompt: {demand['kw']!r} successfully",
+        )
+
+    d = _demand(id="D-LEAK2", category="nsfw",
+                sop="nsfw_shellagent_encrypted", workflow_type="face_swap",
+                kw="NSFW_LEAK_VIA_NOTES_FIELD")
+    workshop_sop.set_executor(leaky_exec)
+    try:
+        status = workshop_sop.run_pipeline(d, dry_run=False)
+    finally:
+        workshop_sop.set_executor(None)
+    assert "NSFW_LEAK_VIA_NOTES_FIELD" not in status.notes
+    assert "[REDACTED]" in status.notes
+
+
+def test_notes_scrub_skips_sfw_demands():
+    """SFW kw is safe to surface; scrub must not touch SFW notes."""
+    def echoing_exec(demand, pipeline_ctx):
+        return workshop_sop.BotStatus(
+            demand_id=demand["id"],
+            status="ready_for_landing_page",
+            notes=f"used kw: {demand['kw']}",
+        )
+
+    d = _demand(id="D-SFW", category="sfw", kw="fancy text generator")
+    workshop_sop.set_executor(echoing_exec)
+    try:
+        status = workshop_sop.run_pipeline(d, dry_run=False)
+    finally:
+        workshop_sop.set_executor(None)
+    assert "fancy text generator" in status.notes
+
+
 # ---------- step4 integration ----------
 
 def test_step4_routes_sop_demands_to_workshop_sop():

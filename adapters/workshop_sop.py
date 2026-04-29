@@ -137,13 +137,16 @@ def _dry_executor(demand: dict[str, Any], pipeline_ctx: dict[str, Any]) -> BotSt
     Emits a plausible status so the loop keeps flowing in dev / CI and ops
     can observe end-to-end wiring without needing Playwright / RH credentials.
     """
+    route = pipeline_ctx.get("rh_route", {}) or {}
+    # Prefer workflow_id, fall back to webapp_id. Stay None when both are
+    # unset (e.g. image2video routes where workflow is picked at runtime) —
+    # downstream consumers distinguish None from a real id, not from "".
+    inferred = route.get("workflow_id") or route.get("webapp_id")
     return BotStatus(
         demand_id=demand.get("id", "?"),
         status="dev_in_progress",
         notes=f"dry executor ({pipeline_ctx.get('pipeline', 'unknown')})",
-        rh_workflow_id=str(pipeline_ctx.get("rh_route", {}).get("workflow_id")
-                           or pipeline_ctx.get("rh_route", {}).get("webapp_id")
-                           or ""),
+        rh_workflow_id=str(inferred) if inferred else None,
     )
 
 
@@ -206,9 +209,19 @@ def run_pipeline(demand: dict[str, Any], *, dry_run: bool = False) -> BotStatus:
     if not status.demand_id:
         status.demand_id = _redact_id(demand)
     if not status.rh_workflow_id:
-        status.rh_workflow_id = str(route.get("workflow_id")
-                                     or route.get("webapp_id")
-                                     or "")
+        inferred = route.get("workflow_id") or route.get("webapp_id")
+        # None > "" so consumers can distinguish "not-yet-picked" from
+        # "executor explicitly set empty" (lucas-clawd PR#2 review feedback).
+        status.rh_workflow_id = str(inferred) if inferred else None
+
+    # Defensive privacy scrub: if a real executor accidentally embedded the
+    # raw NSFW kw into `notes` (e.g. via an f-string), strip it before the
+    # status crosses any serialization / logging boundary. Layered defense
+    # on top of the per-executor privacy contract.
+    if demand.get("category") == "nsfw":
+        raw_kw = demand.get("kw")
+        if raw_kw and status.notes and raw_kw in status.notes:
+            status.notes = status.notes.replace(raw_kw, "[REDACTED]")
 
     bridge.send("log",
                 f"[workshop_sop] {_redact_id(demand)} → {status.status} ({pipeline_name})",
