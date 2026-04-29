@@ -66,22 +66,38 @@ def _fetch_http(url: str) -> list[dict[str, Any]]:
     return _unwrap(data) or []
 
 
-def _fetch_slack_latest(side: str) -> list[dict[str, Any]] | None:
-    """Pull the most recent `{side}-listings-snapshot*.json` from a Slack channel.
+def _fetch_slack_file(prefix: str, channel: str | None = None,
+                      thread_ts: str | None = None,
+                      unwrap: bool = True) -> list[dict[str, Any]] | dict[str, Any] | None:
+    """Pull the most recent JSON file whose filename starts with ``prefix``.
 
-    Matches any file whose name starts with `{side}-listings-snapshot`
-    (supports plain .json and timestamped variants like
-    `amy-listings-snapshot-20260428T110808Z.json`).
+    Generalized cross-lobster Slack transport. Replaces the old
+    `_fetch_slack_latest(side)` helper (which was hard-coded to
+    `{side}-listings-snapshot`).
+
+    Args:
+      prefix:   filename prefix to match, e.g. ``bot_demands_`` /
+                ``bobo-bot-status-`` / ``amy-listings-snapshot``.
+      channel:  Slack channel id. Falls back to ``LOBSTER_SLACK_CHANNEL``.
+      thread_ts: optional thread timestamp — when given, files are filtered
+                to that thread only (matches the uploader's message-ts
+                `.thread_ts`). When omitted, any file in the channel matches.
+      unwrap:   when True, return the list inside standard wrappers
+                (``{listings}``, ``{items}``, …). When False, return the
+                raw JSON object (needed for ``bot_demands_*.approved.json``
+                which has ``{schema, source, demands:[...]}``).
 
     Env:
       SLACK_BOT_TOKEN        — xoxb-...
-      LOBSTER_SLACK_CHANNEL  — channel id (e.g. C0AR3GXL39D for #claw2claude)
+      LOBSTER_SLACK_CHANNEL  — default channel id when ``channel`` is None.
+
+    Returns None when transport is misconfigured or no matching file exists.
+    The caller falls back to the next tier (local file / empty stub).
     """
     token = env("SLACK_BOT_TOKEN")
-    channel = env("LOBSTER_SLACK_CHANNEL")
+    channel = channel or env("LOBSTER_SLACK_CHANNEL")
     if not token or not channel:
         return None
-    prefix = f"{side}-listings-snapshot"
     try:
         r = httpx.get(
             "https://slack.com/api/files.list",
@@ -94,12 +110,27 @@ def _fetch_slack_latest(side: str) -> list[dict[str, Any]] | None:
         data = r.json()
         if not data.get("ok"):
             return None
-        files = sorted(
-            (f for f in data.get("files", [])
-             if (f.get("name") or "").startswith(prefix)
-             and (f.get("name") or "").endswith(".json")),
-            key=lambda f: -int(f.get("created", 0)),
-        )
+        files = [
+            f for f in data.get("files", [])
+            if (f.get("name") or "").startswith(prefix)
+            and (f.get("name") or "").endswith(".json")
+        ]
+        if thread_ts:
+            # Slack attaches the message-ts to each file as either
+            # `thread_ts` (when the file was posted in a thread) or the file
+            # sits on a message whose ts == thread_ts. Filter defensively.
+            def in_thread(f: dict[str, Any]) -> bool:
+                if f.get("thread_ts") == thread_ts:
+                    return True
+                # walk shares.public/private: each share has `thread_ts` too
+                for section in (f.get("shares") or {}).values():
+                    for sh in section.values() if isinstance(section, dict) else []:
+                        for entry in sh if isinstance(sh, list) else []:
+                            if entry.get("thread_ts") == thread_ts or entry.get("ts") == thread_ts:
+                                return True
+                return False
+            files = [f for f in files if in_thread(f)]
+        files.sort(key=lambda f: -int(f.get("created", 0)))
         if not files:
             return None
         url = files[0].get("url_private_download") or files[0].get("url_private")
@@ -109,9 +140,16 @@ def _fetch_slack_latest(side: str) -> list[dict[str, Any]] | None:
                        timeout=30, follow_redirects=True)
         r2.raise_for_status()
         payload = r2.json()
+        if not unwrap:
+            return payload
         return _unwrap(payload)
     except Exception:
         return None
+
+
+def _fetch_slack_latest(side: str) -> list[dict[str, Any]] | None:
+    """Back-compat shim: pull `{side}-listings-snapshot*.json` from the default channel."""
+    return _fetch_slack_file(f"{side}-listings-snapshot")  # type: ignore[return-value]
 
 
 def fetch_state(side: str) -> list[dict[str, Any]]:
