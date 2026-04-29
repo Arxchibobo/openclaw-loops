@@ -217,6 +217,60 @@ def test_step2_unknown_priority_falls_to_last():
     assert [d["id"] for d in ctx["demands"]] == ["D-C", "D-B", "D-A"]
 
 
+def test_step2_populates_ephemeral_kw_store_for_executor():
+    """The real executor needs raw kw, which must NOT go through kv/sqlite.
+    step2 populates a process-local ephemeral store keyed by demand_id."""
+    from adapters import ephemeral_kw
+    ephemeral_kw.clear()
+
+    payload = {
+        "schema": "gtm-loop.bot-demands.v1",
+        "demands": [
+            {"id": "D-E1", "kw": "fancy text generator",
+             "category": "sfw", "sop": "sfw_standard", "priority": "high",
+             "volume": 60500, "human_approval_status": "approved"},
+            {"id": "D-E2", "kw": "male dreadlocks hairstyles",
+             "category": "sfw", "sop": "sfw_standard", "priority": "low",
+             "volume": 14800, "human_approval_status": "approved"},
+        ],
+    }
+    step = step2_demand_intake.Step()
+    ctx: dict = {}
+    with patch.object(lobster, "_fetch_slack_file", return_value=payload):
+        with patch.dict(os.environ, {"LUCAS_DEMAND_CHANNEL": "C_TEST"}):
+            with patch.object(step2_demand_intake, "kv_set"):
+                step.execute(ctx)
+
+    # executor-side lookup works
+    assert ephemeral_kw.get_kw("D-E1") == "fancy text generator"
+    assert ephemeral_kw.get_kw("D-E2") == "male dreadlocks hairstyles"
+    ephemeral_kw.clear()
+
+
+def test_step2_dry_run_does_not_populate_ephemeral_kw():
+    """Dry runs must not pollute process state."""
+    from adapters import ephemeral_kw
+    ephemeral_kw.clear()
+
+    payload = {
+        "schema": "gtm-loop.bot-demands.v1",
+        "demands": [
+            {"id": "D-DRY", "kw": "sensitive_dry_kw",
+             "category": "sfw", "sop": "sfw_standard", "priority": "high",
+             "volume": 1, "human_approval_status": "approved"},
+        ],
+    }
+    step = step2_demand_intake.Step()
+    ctx: dict = {"dry_run": True}
+    with patch.object(lobster, "_fetch_slack_file", return_value=payload):
+        with patch.dict(os.environ, {"LUCAS_DEMAND_CHANNEL": "C_TEST"}):
+            with patch.object(step2_demand_intake, "kv_set"):
+                step.execute(ctx)
+
+    assert ephemeral_kw.get_kw("D-DRY") is None
+    ephemeral_kw.clear()
+
+
 # ---------- lobster adapter back-compat ----------
 
 def test_fetch_slack_latest_backcompat_shim():
