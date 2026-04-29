@@ -84,7 +84,11 @@ adapters:
   workshop:
     review_rules:
       min_score: 0.7
-      forbidden_tags: ["nsfw", "violence"]
+      # Hard content policy blocks. NSFW is NOT here anymore — it is routed
+      # through adapters.workshop_sop.nsfw_shellagent_encrypted (see 2026-04-29
+      # GTM Loop Step 2 spec). Only truly off-limits categories block here.
+      forbidden_tags: ["csam", "violence", "non_consensual", "minor"]
+      allowed_sops: ["sfw_standard", "nsfw_shellagent_encrypted"]
   lobster:
     amy_endpoint_env: AMY_LOBSTER_URL
     bo_endpoint_env: BO_LOBSTER_URL
