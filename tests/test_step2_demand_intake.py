@@ -226,3 +226,123 @@ def test_fetch_slack_latest_backcompat_shim():
         mock.return_value = []
         lobster._fetch_slack_latest("amy")
         assert mock.call_args.args[0] == "amy-listings-snapshot"
+
+
+# ---------- lenient thread_ts filter (lucas-clawd smoke Bug #1) ----------
+
+def _mock_slack_response(files):
+    """Build a files.list mock that matches httpx.get semantics."""
+    class R:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self_inner): return {"ok": True, "files": files}
+    return R()
+
+
+def _mock_download_response(payload):
+    class R:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self_inner): return payload
+    return R()
+
+
+def test_lenient_thread_ts_keeps_file_with_null_thread_info():
+    """The real Slack API bug: files uploaded via files.upload_v2 into a
+    thread return thread_ts=None and empty shares. Lenient filter must
+    keep them."""
+    files = [{
+        "name": "bot_demands_20260429T080429Z.approved.json",
+        "created": 1777450000,
+        "thread_ts": None,
+        "shares": {},
+        "url_private_download": "https://files.slack.com/foo.json",
+    }]
+    expected_payload = {"schema": "gtm-loop.bot-demands.v1", "demands": [{"id": "D-1"}]}
+
+    def fake_get(url, **kw):
+        if "files.list" in url:
+            return _mock_slack_response(files)
+        return _mock_download_response(expected_payload)
+
+    with patch.dict(os.environ, {"SLACK_BOT_TOKEN": "xoxb-t"}):
+        with patch.object(lobster.httpx, "get", side_effect=fake_get):
+            out = lobster._fetch_slack_file(
+                "bot_demands_", channel="C_T",
+                thread_ts="1777350243.248729", unwrap=False,
+            )
+    assert out == expected_payload  # file was kept, not dropped
+
+
+def test_lenient_thread_ts_drops_file_with_contradicting_thread_info():
+    """When thread_ts is explicitly present and *different*, drop.
+    This is the only case where the filter should reject."""
+    files = [{
+        "name": "bot_demands_OTHER.approved.json",
+        "created": 1777450000,
+        "thread_ts": "9999999999.000000",  # explicitly different thread
+        "shares": {},
+        "url_private_download": "https://files.slack.com/x.json",
+    }]
+    with patch.dict(os.environ, {"SLACK_BOT_TOKEN": "xoxb-t"}):
+        with patch.object(lobster.httpx, "get",
+                          return_value=_mock_slack_response(files)):
+            out = lobster._fetch_slack_file(
+                "bot_demands_", channel="C_T",
+                thread_ts="1777350243.248729", unwrap=False,
+            )
+    assert out is None  # correctly dropped
+
+
+def test_lenient_thread_ts_matches_on_shares_when_populated():
+    """When Slack DOES populate shares (some paths do), match on shares."""
+    files = [{
+        "name": "bot_demands_20260429T080429Z.approved.json",
+        "created": 1777450000,
+        "thread_ts": None,
+        "shares": {
+            "public": {
+                "C_T": [{"ts": "1777449871.000000",
+                         "thread_ts": "1777350243.248729"}],
+            },
+        },
+        "url_private_download": "https://files.slack.com/y.json",
+    }]
+    payload = {"demands": [{"id": "D-M"}]}
+
+    def fake_get(url, **kw):
+        if "files.list" in url:
+            return _mock_slack_response(files)
+        return _mock_download_response(payload)
+
+    with patch.dict(os.environ, {"SLACK_BOT_TOKEN": "xoxb-t"}):
+        with patch.object(lobster.httpx, "get", side_effect=fake_get):
+            out = lobster._fetch_slack_file(
+                "bot_demands_", channel="C_T",
+                thread_ts="1777350243.248729", unwrap=False,
+            )
+    assert out == payload
+
+
+def test_lenient_thread_ts_drops_file_shared_to_different_thread_only():
+    """File is shared but to a *different* thread only — must drop."""
+    files = [{
+        "name": "bot_demands_X.approved.json",
+        "created": 1777450000,
+        "thread_ts": None,
+        "shares": {
+            "public": {
+                "C_T": [{"ts": "1777999999.000000",
+                         "thread_ts": "8888888888.000000"}],
+            },
+        },
+        "url_private_download": "https://files.slack.com/z.json",
+    }]
+    with patch.dict(os.environ, {"SLACK_BOT_TOKEN": "xoxb-t"}):
+        with patch.object(lobster.httpx, "get",
+                          return_value=_mock_slack_response(files)):
+            out = lobster._fetch_slack_file(
+                "bot_demands_", channel="C_T",
+                thread_ts="1777350243.248729", unwrap=False,
+            )
+    assert out is None

@@ -79,9 +79,15 @@ def _fetch_slack_file(prefix: str, channel: str | None = None,
       prefix:   filename prefix to match, e.g. ``bot_demands_`` /
                 ``bobo-bot-status-`` / ``amy-listings-snapshot``.
       channel:  Slack channel id. Falls back to ``LOBSTER_SLACK_CHANNEL``.
-      thread_ts: optional thread timestamp — when given, files are filtered
-                to that thread only (matches the uploader's message-ts
-                `.thread_ts`). When omitted, any file in the channel matches.
+      thread_ts: optional thread timestamp. **Lenient filter** (2026-04-29):
+                Slack files.list frequently returns ``thread_ts=None`` and
+                empty ``shares`` for files uploaded into a thread via
+                ``files.upload_v2`` — the thread association lives in the
+                message, not the file object. So we only drop a file when
+                it carries explicit thread metadata that *contradicts*
+                ``thread_ts``. Files with no thread info are kept; callers
+                should additionally scope by ``channel`` + ``prefix`` to
+                avoid cross-contamination.
       unwrap:   when True, return the list inside standard wrappers
                 (``{listings}``, ``{items}``, …). When False, return the
                 raw JSON object (needed for ``bot_demands_*.approved.json``
@@ -116,20 +122,36 @@ def _fetch_slack_file(prefix: str, channel: str | None = None,
             and (f.get("name") or "").endswith(".json")
         ]
         if thread_ts:
-            # Slack attaches the message-ts to each file as either
-            # `thread_ts` (when the file was posted in a thread) or the file
-            # sits on a message whose ts == thread_ts. Filter defensively.
-            def in_thread(f: dict[str, Any]) -> bool:
-                if f.get("thread_ts") == thread_ts:
+            # Lenient filter: Slack's files.list API does NOT reliably
+            # populate thread_ts / shares on files uploaded via
+            # files.upload_v2 into a thread (real bug observed 2026-04-29
+            # end-to-end smoke). Only drop a file when it carries
+            # EXPLICIT contradicting thread metadata. Files without thread
+            # info pass through — channel + prefix scoping already keeps
+            # cross-contamination bounded.
+            def keep(f: dict[str, Any]) -> bool:
+                f_thread = f.get("thread_ts")
+                if f_thread and f_thread == thread_ts:
                     return True
-                # walk shares.public/private: each share has `thread_ts` too
-                for section in (f.get("shares") or {}).values():
-                    for sh in section.values() if isinstance(section, dict) else []:
-                        for entry in sh if isinstance(sh, list) else []:
+                shares = f.get("shares") or {}
+                saw_any_thread_info = bool(f_thread)
+                for section in shares.values():
+                    if not isinstance(section, dict):
+                        continue
+                    for sh in section.values():
+                        if not isinstance(sh, list):
+                            continue
+                        for entry in sh:
+                            if not isinstance(entry, dict):
+                                continue
                             if entry.get("thread_ts") == thread_ts or entry.get("ts") == thread_ts:
                                 return True
-                return False
-            files = [f for f in files if in_thread(f)]
+                            if entry.get("thread_ts") or entry.get("ts"):
+                                saw_any_thread_info = True
+                # No matching thread info found. Keep ONLY when the file
+                # carries no thread signal at all — the Slack API bug path.
+                return not saw_any_thread_info
+            files = [f for f in files if keep(f)]
         files.sort(key=lambda f: -int(f.get("created", 0)))
         if not files:
             return None
