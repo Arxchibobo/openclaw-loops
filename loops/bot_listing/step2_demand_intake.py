@@ -67,32 +67,32 @@ def _safe_payload(demand: dict[str, Any]) -> dict[str, Any]:
 
 
 def _pull_approved(channel: str, thread_ts: str | None) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    """Fetch the most recent approved batch.
+    """Fetch the most recent ``bot_demands_*`` batch from the Slack thread.
 
-    Tries ``.approved.json`` first; falls back to ``.json`` only if no approved
-    batch exists (dev / fixture scenarios). In prod we always expect the
-    approved suffix.
+    Filename doesn't matter: ``_fetch_slack_file`` grabs whatever starts with
+    the prefix (plain or ``.approved.json`` suffix), and we filter on the
+    ``human_approval_status`` field of each demand — which is the source of
+    truth. This means lucas can upload unapproved batches as pending state
+    without them polluting the intake; only demands with status=='approved'
+    surface here.
 
     Returns (demands, meta). ``meta`` is the top-level batch dict minus the
     ``demands`` list (batch_id, source, schema, generated_at) — useful for
     traceability + status callbacks later.
     """
-    for prefix in ("bot_demands_", ):
-        payload = lobster._fetch_slack_file(
-            prefix, channel=channel, thread_ts=thread_ts, unwrap=False,
-        )
-        if not isinstance(payload, dict):
-            continue
-        if payload.get("schema") != SCHEMA:
-            # Unknown schema — ignore, don't explode.
-            bridge.send("log", "[demand-intake] skipped file: schema mismatch",
-                        meta={"schema": payload.get("schema")})
-            continue
-        demands = payload.get("demands") or []
-        approved = [d for d in demands if d.get("human_approval_status") == APPROVED_STATUS]
-        meta = {k: v for k, v in payload.items() if k != "demands"}
-        return approved, meta
-    return [], None
+    payload = lobster._fetch_slack_file(
+        "bot_demands_", channel=channel, thread_ts=thread_ts, unwrap=False,
+    )
+    if not isinstance(payload, dict):
+        return [], None
+    if payload.get("schema") != SCHEMA:
+        bridge.send("log", "[demand-intake] skipped file: schema mismatch",
+                    meta={"schema": payload.get("schema")})
+        return [], None
+    demands = payload.get("demands") or []
+    approved = [d for d in demands if d.get("human_approval_status") == APPROVED_STATUS]
+    meta = {k: v for k, v in payload.items() if k != "demands"}
+    return approved, meta
 
 
 class Step(BaseStep):
@@ -121,7 +121,7 @@ class Step(BaseStep):
         # Priority ordering: high > medium > low, then by (volume desc).
         priority_rank = {"high": 0, "medium": 1, "low": 2}
         demands.sort(key=lambda d: (
-            priority_rank.get(d.get("priority", "low"), 3),
+            priority_rank.get(d.get("priority") or "low", 3),
             -int(d.get("volume", 0) or 0),
         ))
 

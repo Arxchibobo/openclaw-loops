@@ -190,6 +190,33 @@ def test_step2_no_config_returns_empty_not_raise():
     assert out["demands"] == []
 
 
+def test_step2_unknown_priority_falls_to_last():
+    # Verify `priority_rank.get(..., 3)` default is actually reachable
+    # when a demand carries a priority string we don't know about.
+    payload = {
+        "schema": "gtm-loop.bot-demands.v1",
+        "demands": [
+            {"id": "D-A", "kw": "a", "category": "sfw", "sop": "sfw_standard",
+             "priority": "urgent",  # unknown — should rank=3 (last)
+             "volume": 99999, "human_approval_status": "approved"},
+            {"id": "D-B", "kw": "b", "category": "sfw", "sop": "sfw_standard",
+             "priority": "low", "volume": 100,
+             "human_approval_status": "approved"},
+            {"id": "D-C", "kw": "c", "category": "sfw", "sop": "sfw_standard",
+             "priority": "high", "volume": 5,
+             "human_approval_status": "approved"},
+        ],
+    }
+    step = step2_demand_intake.Step()
+    ctx: dict = {}
+    with patch.object(lobster, "_fetch_slack_file", return_value=payload):
+        with patch.dict(os.environ, {"LUCAS_DEMAND_CHANNEL": "C_TEST"}):
+            with patch.object(step2_demand_intake, "kv_set"):
+                step.execute(ctx)
+    # high first, low second, unknown(=3) last — despite unknown having biggest volume
+    assert [d["id"] for d in ctx["demands"]] == ["D-C", "D-B", "D-A"]
+
+
 # ---------- lobster adapter back-compat ----------
 
 def test_fetch_slack_latest_backcompat_shim():
