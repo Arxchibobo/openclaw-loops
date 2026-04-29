@@ -87,10 +87,22 @@ SFW_PROBE_PATH = "data/smoke/sfw_probe.mp4"
 # ---------- status model ----------
 BotStatusLiteral = Literal[
     "dev_in_progress",
+    "submitted_for_review",
     "ready_for_landing_page",
     "rejected",
     "blocked",
 ]
+# State transitions (GTM Loop Step 2, 2026-04-29):
+#   dev_in_progress      -> bot created in workshop but not yet submitted
+#   submitted_for_review -> submit_review ok; bot has UUID app_id but no prod
+#                           int bot_id; DO NOT build LP against UUID (it's a
+#                           dev-only id). Watcher upgrades to
+#                           ready_for_landing_page once reviewer approves +
+#                           publish assigns int bot_id.
+#   ready_for_landing_page -> publish done, int bot_id available; lucas-clawd
+#                             may now build the LP.
+#   rejected               -> human reviewer rejected; rejected_reason set.
+#   blocked                -> executor failure before/during submit.
 
 
 @dataclass
