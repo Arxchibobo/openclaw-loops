@@ -331,5 +331,27 @@ def test_step4_real_executor_injection_path():
     assert out["bot_statuses"][0]["bot_id"] == "999.0"
 
 
+def test_submitted_for_review_is_valid_status():
+    """BotStatus accepts 'submitted_for_review' — intermediate state after
+    bobo's real executor submits to workshop but before a human reviewer
+    approves (at which point watcher upgrades to ready_for_landing_page).
+
+    Guardrails (PR #7 / 2026-04-29 Zhongxiao correction):
+      - bot_id MUST be None in this state (UUID app_id is dev-only and
+        must not leak as bot_id)
+      - LP build must NOT happen on this status
+    """
+    bs = workshop_sop.BotStatus(
+        demand_id="D-TEST",
+        status="submitted_for_review",
+        bot_id=None,
+        bot_name="Test Bot",
+        workshop_url="https://art.myshell.ai/workshop/detail?id=abc-123",
+        notes="submitted; awaiting human review",
+    )
+    assert bs.status == "submitted_for_review"
+    assert bs.bot_id is None
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
