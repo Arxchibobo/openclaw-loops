@@ -31,6 +31,7 @@ from typing import Any
 from adapters import lobster
 from core import bridge
 from core.config import env
+from adapters import ephemeral_kw
 from core.state import kv_get, kv_set
 from loops.base import BaseStep
 
@@ -138,6 +139,16 @@ class Step(BaseStep):
         # These contain the real kw — must not be serialized past loop end.
         ctx["demands"] = demands
         ctx["demand_batch_meta"] = meta
+
+        # Per-process ephemeral store keyed by demand_id. This is the ONLY
+        # path by which step4's real executor (cyber-developer-cron) can
+        # recover the raw kw without it crossing sqlite / Slack / logs.
+        # Wiped at clear() — callers control lifecycle.
+        if not dry_run:
+            ephemeral_kw.clear()  # fresh batch, no stale bleed
+            for d in demands:
+                if d.get("id") and d.get("kw"):
+                    ephemeral_kw.set_kw(d["id"], d["kw"])
 
         redacted_ids = [_redact(d) for d in demands]
         bridge.send("log",
