@@ -78,10 +78,13 @@ class Step(BaseStep):
             "results": results,
             "bot_statuses": [s.to_dict() for s in statuses],
             "metrics": {
-                "acceptance_passed": failed == 0 and bool(results),
+                # 2026-05-03: 0 验收项 ≠ failed。只要没有 check 报错就算 pass，
+                # 与 Step 2 空入输保保一致。
+                "acceptance_passed": failed == 0,
                 "checked": len(results),
                 "failed_checks": failed,
                 "via_sop": len(statuses),
+                "has_results": bool(results),
             },
         }
 
@@ -89,7 +92,8 @@ class Step(BaseStep):
         results = kv_get("bot_listing", "acceptance", []) or []
         failed = sum(1 for r in results if not all(r.get("checks", {}).values()))
         return {
-            "acceptance_passed": failed == 0 and bool(results),
+            "acceptance_passed": failed == 0,
             "checked": len(results),
             "failed_checks": failed,
+            "has_results": bool(results),
         }

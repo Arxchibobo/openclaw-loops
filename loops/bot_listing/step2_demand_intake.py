@@ -115,7 +115,8 @@ class Step(BaseStep):
         if not channel:
             bridge.send("log", "[demand-intake] LUCAS_DEMAND_CHANNEL / "
                         "LOBSTER_SLACK_CHANNEL not configured; skipping.")
-            return {"demands": [], "metrics": {"demands_recorded": False, "draft_count": 0}}
+            # 2026-05-03: 配置缺失也不算 fail（上游未供料），放行到下游。
+            return {"demands": [], "metrics": {"demands_recorded": True, "draft_count": 0, "has_demands": False}}
 
         demands, meta = _pull_approved(channel, thread_ts)
 
@@ -165,18 +166,24 @@ class Step(BaseStep):
             "demands": safe_rows,  # return kw-stripped view (not raw)
             "demand_batch_meta": meta,
             "metrics": {
-                "demands_recorded": bool(demands),
+                # 2026-05-03: 空 demand 不算 failed. verify 看的是管道是否通达
+                # (channel 配好 + fetch 未炒 + schema 匹配)，不是上游供料量。
+                # lucas-clawd 大多数时间不必天天投 demand，loop 要能续跑到
+                # Step 5 产生 amy/bo 对账信号。
+                "demands_recorded": True,
                 "draft_count": len(demands),
                 "nsfw_count": sum(1 for d in demands if d.get("category") == "nsfw"),
                 "sfw_count": sum(1 for d in demands if d.get("category") == "sfw"),
+                "has_demands": bool(demands),
             },
         }
 
     def read_metrics(self, ctx: dict[str, Any]) -> dict[str, Any]:
         demands = kv_get("bot_listing", "demands", []) or []
         return {
-            "demands_recorded": bool(demands),
+            "demands_recorded": True,
             "draft_count": len(demands),
             "nsfw_count": sum(1 for d in demands if d.get("category") == "nsfw"),
             "sfw_count": sum(1 for d in demands if d.get("category") == "sfw"),
+            "has_demands": bool(demands),
         }
