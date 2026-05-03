@@ -28,7 +28,11 @@ def latest_report() -> Path | None:
 
 def parse_metrics(md: str) -> dict[str, str]:
     out: dict[str, str] = {}
-    for key in ("amy_bo_consistent", "published", "only_amy", "only_bo"):
+    for key in (
+        "amy_bo_consistent", "diff_computed", "published", "only_amy", "only_bo",
+        "feedback_collected", "items", "to_optimize", "to_retire",
+        "notification_delivered", "channels",
+    ):
         m = re.search(rf"- {re.escape(key)}:\s*(\S+)", md)
         if m:
             out[key] = m.group(1)
@@ -38,7 +42,6 @@ def parse_metrics(md: str) -> dict[str, str]:
 def main() -> int:
     tok = os.environ["SLACK_BOT_TOKEN"]
 
-    # find/open bobo DM
     r = httpx.post(
         "https://slack.com/api/conversations.open",
         headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
@@ -61,14 +64,19 @@ def main() -> int:
 
     ok = metrics.get("amy_bo_consistent", "?")
     summary_icon = "✅" if ok == "True" else "⚠️"
+    loop_fully_ran = metrics.get("notification_delivered") == "True"
+    loop_status = "✅ 8/8 ok" if loop_fully_ran else "⚠️ 有步骤 halt"
 
     msg = (
         f"🦞 *每日 openclaw-loops 报告* (北京 12:00 / UTC 04:00)\n\n"
-        f"*一致性*: {summary_icon} `{ok}`\n"
+        f"*loop 状态*: {loop_status}\n"
+        f"*amy/bo 一致性*: {summary_icon} `{ok}`\n"
         f"*only_amy* (CMS 有 / Notion 缺 art上线 tag): `{metrics.get('only_amy','?')}` 条\n"
         f"*only_bo* (Notion 有 / CMS 未 Synced) 真 QA backlog: `{metrics.get('only_bo','?')}` 条\n"
-        f"*已上架*: `{metrics.get('published','?')}`\n\n"
-        f"*step5 table*:\n```\n{run_out}\n```\n\n"
+        f"*已上架*: `{metrics.get('published','?')}`\n"
+        f"*feedback items / 待优化 / 待下架*: `{metrics.get('items','?')}` / `{metrics.get('to_optimize','?')}` / `{metrics.get('to_retire','?')}`\n"
+        f"*通知渠道*: `{metrics.get('channels','?')}`\n\n"
+        f"*loop table*:\n```\n{run_out}\n```\n\n"
         f"完整报告: `{report_path.name if report_path else 'n/a'}`\n"
         f"thread: {THREAD_URL}\n\n"
         f"_如需详情或修 gap, 喊「汪汪~ 按报告处理」_"

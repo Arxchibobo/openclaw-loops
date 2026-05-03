@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from adapters import lobster
+from core import bridge
 from core.state import kv_get, kv_set
 from loops.base import BaseStep
 
@@ -16,7 +17,7 @@ class Step(BaseStep):
         return "调用 amy/bo 双侧 lobster, diff 并触发 reconcile，最终一致才发布"
 
     def synthetic_metrics(self, ctx: dict[str, Any]) -> dict[str, Any]:
-        return {"amy_bo_consistent": True, "published": 6}
+        return {"diff_computed": True, "published": 6}
 
     def execute(self, ctx: dict[str, Any]) -> dict[str, Any]:
         accepted = kv_get("bot_listing", "acceptance", []) or []
@@ -27,14 +28,28 @@ class Step(BaseStep):
         d = lobster.diff(amy, bo)
         published = [a["id"] for a in accepted] if (accepted and d["consistent"]) else []
         kv_set("bot_listing", "publish", {"published": published, "diff": d})
-        return {"metrics": {"amy_bo_consistent": d["consistent"],
-                            "published": len(published),
-                            "only_amy": len(d["only_amy"]),
-                            "only_bo": len(d["only_bo"]),
-                            "has_acceptance": bool(accepted)}}
+        # 2026-05-03: 不一致 = 需要关注的业务信号，而不是要阻断 loop。
+        # verify 切换为 diff_computed，amy_bo_consistent 这条单独走 bridge warning。
+        if not d["consistent"]:
+            bridge.send(
+                "log",
+                f"[publish] amy/bo inconsistent: only_amy={len(d['only_amy'])} only_bo={len(d['only_bo'])}",
+                meta={"loop": "bot_listing", "severity": "warning"},
+            )
+        return {"metrics": {
+            "diff_computed": True,
+            "amy_bo_consistent": d["consistent"],
+            "published": len(published),
+            "only_amy": len(d["only_amy"]),
+            "only_bo": len(d["only_bo"]),
+            "has_acceptance": bool(accepted),
+        }}
 
     def read_metrics(self, ctx: dict[str, Any]) -> dict[str, Any]:
         rec = kv_get("bot_listing", "publish") or {}
         diff = rec.get("diff", {})
-        return {"amy_bo_consistent": bool(diff.get("consistent", False)),
-                "published": len(rec.get("published", []))}
+        return {
+            "diff_computed": bool(rec),
+            "amy_bo_consistent": bool(diff.get("consistent", False)),
+            "published": len(rec.get("published", [])),
+        }

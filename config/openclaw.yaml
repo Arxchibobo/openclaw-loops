@@ -28,7 +28,7 @@ loops:
         key: publish
         name: "通过上架"
         module: loops.bot_listing.step5_publish
-        verify: amy_bo_consistent
+        verify: diff_computed
       - id: 6
         key: feedback
         name: "上架反馈"

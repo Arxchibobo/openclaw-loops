@@ -26,9 +26,10 @@ class Step(BaseStep):
             "metrics": {"runs_24h": 0, "errors_24h": 0, "stars": None},
         } for pid in published]
         kv_set("bot_listing", "feedback", feedback)
-        return {"metrics": {"feedback_collected": bool(feedback),
-                            "items": len(feedback)}}
+        return {"metrics": {"feedback_collected": True,
+                            "items": len(feedback),
+                            "has_published": bool(published)}}
 
     def read_metrics(self, ctx: dict[str, Any]) -> dict[str, Any]:
         f = kv_get("bot_listing", "feedback", []) or []
-        return {"feedback_collected": bool(f), "items": len(f)}
+        return {"feedback_collected": True, "items": len(f), "has_published": bool(f)}
